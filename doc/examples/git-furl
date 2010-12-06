@@ -1,0 +1,120 @@
+#!/usr/bin/env python
+
+import os.path, sys
+from subprocess import Popen, PIPE
+from twisted.python import usage
+from foolscap.appserver.cli import run_flappserver
+
+'''
+Use this tool to publish a git repository via Foolscap application server
+(aka "flappserver"). Once configured, this creates an access string known as
+a "FURL". You can then use this FURL as a git URL on any client which has the
+"git-remote-pb" helper installed.
+
+THese FURLs provide cryptographically-secure access to a specific resource.
+Unlike SSH keys, the holder of this FURL is limited to a single command (e.g.
+git receive-pack). This is safer and easier to configure than putting
+command/environment restrictions on an SSH key, and does not require running
+a daemon as root.
+
+To publish a git repo, first make sure you have a flappserver set up. You
+only need to do this once, no matter how many repositories you publish (or
+other flappserver commands you add):
+
+ flappserver create ~/.flappserver
+ flappserver start ~/.flappserver
+
+(you may want to add a "flappserver start ~/.flappserver" command to a
+@reboot cronjob or LaunchAgent, to make sure the server is started each time
+your machine reboots).
+
+Once that is in place, decide whether you want to publish this repository in
+read-write or read-only mode, cd into your repo, and then run either:
+
+ git furl publish --read-only
+
+  or
+
+ git furl publish --read-write
+
+Both commands will emit a FURL. Simply give this FURL to somebody via a
+secure channel and have them run "git remote add NAME FURL". Remind them to
+install Foolscap and the "git-remote-pb" program.
+
+You can create as many FURLs as you want. Each one can be revoked separately.
+To revoke a FURL, use "flappserver list" to find the one you want, get its
+"swissnum", delete the corresponding directory under
+~/.flappserver/services/SWISSNUM , then use "flappserver restart
+~/.flappserver" to restart the server.
+
+You can add a comment when publishing, to help you remember who you gave the
+FURL to, so you can revoke the right one later:
+
+ git furl publish --comment="for Bob" --read-write
+
+'''
+
+def probably_git_repo(repodir):
+    return (os.path.exists(os.path.join(repodir, "objects"))
+            and os.path.exists(os.path.join(repodir, "refs")))
+
+class Options(usage.Options):
+    synopsis = "git-furl publish --read-only/--read-write [--comment COMMENT] [--flappserverdir=~/.flappserver]"
+    optFlags = [
+        ("read-only", None, "allow client to fetch changes from this repository"),
+        ("read-write", None, "allow client to push changes into this repository"),
+        ]
+    optParameters = [
+        ("comment", None, None, "add a note to the flappserver comment field"),
+        ("flappserverdir", None, "~/.flappserver", "where the flappserver lives"),
+        ]
+    longdesc = """Add a service (to a pre-existing flappserver) that will
+grant FURL-based access to a single Git repository in REPODIR. Use
+'flappserver create' and 'flappserver start' to launch the server, then run
+me to connect the server and a repository. I will emit a FURL, which can be
+passed to 'git-clone-furl' and 'git-remote-add-furl' (on some other machine)
+to create repos that can access my REPODIR."""
+
+    def opt_h(self):
+        return self.opt_help()
+
+    def postOptions(self):
+        serverdir = os.path.expanduser(self["flappserverdir"])
+        if not os.path.exists(os.path.join(serverdir, "flappserver.tac")):
+            print >>sys.stderr, "serverdir %s doesn't look like a flappserver basedir" % serverdir
+            raise usage.UsageError("--flappserverdir must be a flappserver basedir")
+        if not os.path.exists(os.path.join(serverdir, "umask")):
+            print >>sys.stderr, "flappserver doesn't have --umask set: consider setting it to 022, otherwise permissions on working files may be messed up"
+        self["flappserverdir"] = serverdir
+
+        d = Popen(["git", "rev-parse", "--git-dir"], stdout=PIPE).communicate()[0]
+        repodir = os.path.expanduser(d)
+        if not probably_git_repo(repodir):
+            print >>sys.stderr, "repodir %s doesn't look like a bare git repo" % repodir
+            if probably_git_repo(os.path.join(repodir, ".git")):
+                print >>sys.stderr, "(but I see a .git subdirectory: please point me at that, or use a bare repo)"
+            raise usage.UsageError("REPODIR must be a git repository")
+        self.repodir = os.path.abspath(repodir)
+
+o = Options()
+o.parseOptions()
+
+#ok = os.path.join(o.repodir, "git-daemon-export-ok")
+#if not os.path.exists(ok):
+#    open(ok, "w").close()
+
+command = ["git", "daemon", "--inetd", "--syslog",
+           "--interpolated-path", o.repodir]
+if read_write:
+    command.append("--enable=receive-pack")
+
+comment = "allow read "
+if read_write:
+    comment += "(and write) "
+comment += "access to the Git repository at %s" % o.repodir
+
+sys.argv = ["flappserver", "add", "--comment", comment, o["flappserverdir"],
+            "run-command", "--accept-stdin", "/",
+            ] + command
+
+run_flappserver() # this doesn't return

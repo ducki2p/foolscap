@@ -1,0 +1,30 @@
+#!/usr/bin/env python
+
+'''
+This is a "git-remote-helper". Put it somewhere on your $PATH and it will
+# be invoked any time git sees a remote URL that starts with "pb:" (i.e. a
+# FURL). Create these by using "git furl".
+'''
+
+import sys
+from foolscap.appserver.client import run_flappclient
+
+repo, url = sys.argv[1:3]
+
+
+while True:
+    command = sys.stdin.readline().strip()
+    if command == "capabilities":
+        print "connect"
+        print
+        continue
+    if command.startswith("connect"):
+        service = command.split()[1] # for fetching, this is "git-upload-pack"
+        # actually, we ignore the service
+        sys.argv = ["flappclient", "--furl", url, "run-command"]
+        run_flappclient()
+        # that never returns
+        sys.exit(1) # make it obvious
+    print >>sys.stderr, "Unknown command '%s'" % command
+    sys.exit(1)
+
