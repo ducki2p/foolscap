@@ -52,6 +52,34 @@ class LocalReference(unittest.TestCase, ShouldFailMixin):
                                "you asked me to fail",
                                rref.callRemote, "fail")
 
+class LocationTest(unittest.TestCase):
+    def test_encode_ipv4(self):
+        hint = ("ipv4", "127.0.0.1", 1234)
+        location = referenceable.encode_location_hint(hint)
+        self.failUnlessEqual(location, "127.0.0.1:1234")
+
+    def test_decode_ipv4(self):
+        hints_s1 = "127.0.0.1:1234"
+        hints1 = referenceable.decode_location_hints(hints_s1)
+        self.failUnlessEqual(hints1, [("ipv4", "127.0.0.1", 1234)])
+
+        hints_s2 = "127.0.0.1:1234,192.168.0.1:0"
+        hints2 = referenceable.decode_location_hints(hints_s2)
+        self.failUnless(("ipv4", "127.0.0.1", 1234) in hints2, hints2)
+        self.failUnless(("ipv4", "192.168.0.1", 0) in hints2, hints2)
+
+    def test_decode_i2p(self):
+        hints_s = "i2p:ukeu3k5oycgaauneqgtnvselmt4yemvoilkln7jpvamvfx7dnkdq.b32.i2p"
+        hints = referenceable.decode_location_hints(hints_s)
+        self.failUnlessEqual(hints, [("ipv4",
+            "ukeu3k5oycgaauneqgtnvselmt4yemvoilkln7jpvamvfx7dnkdq.b32.i2p", 0)])
+
+    def test_decode_i2p_deprecated(self):
+        hints_s = "ukeu3k5oycgaauneqgtnvselmt4yemvoilkln7jpvamvfx7dnkdq.b32.i2p"
+        hints = referenceable.decode_location_hints(hints_s)
+        self.failUnlessEqual(hints, [("ipv4",
+            "ukeu3k5oycgaauneqgtnvselmt4yemvoilkln7jpvamvfx7dnkdq.b32.i2p", 0)])
+
 class TubID(unittest.TestCase):
     def test_tubid_must_match(self):
         good_tubid = "fu2bixsrymp34hwrnukv7hzxc2vrhqqa"
